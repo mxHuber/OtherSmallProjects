@@ -31,33 +31,67 @@ if not os.path.exists(check_file_path):
   quit()
 
 is_ads1115 = False
+is_bme280 = False
+is_bronkhorst_propar = False
 is_ds18b20 = False
+is_max31865 = False
 is_mlx90614 = False
+is_xgzp6847d = False
+
+num_of_columns_to_use = -1
+
 if 'ads1115' in str(args.file_path):
   is_ads1115 = True
+  num_of_columns_to_use = 5
+elif 'bme280' in str(args.file_path):
+  is_bme280 = True
+  num_of_columns_to_use = 3
+elif 'bronkhorst_propar' in str(args.file_path):
+  is_bronkhorst_propar = True
+  num_of_columns_to_use = 6
 elif 'ds18b20' in str(args.file_path):
   is_ds18b20 = True
+  num_of_columns_to_use = 3
+elif 'max31865' in str(args.file_path):
+  is_max31865 = True
+  num_of_columns_to_use = 2
 elif 'mlx90614' in str(args.file_path):
   is_mlx90614 = True
+  num_of_columns_to_use = 3
+elif 'xgzp6847d' in str(args.file_path):
+  is_xgzp6847d = True
+  num_of_columns_to_use = 2
+
+if num_of_columns_to_use == -1:
+  print("ERROR: File name not known.")
+  quit()
 
 if args.debug:
   print("is_ads1115: " + str(is_ads1115))
+  print("is_bme280: " + str(is_bme280))
+  print("is_bronkhorst_propar: " + str(is_bronkhorst_propar))
   print("is_ds18b20: " + str(is_ds18b20))
+  print("is_max31865: " + str(is_max31865))
   print("is_mlx90614: " + str(is_mlx90614))
+  print("is_xgzp6847d: " + str(is_xgzp6847d))
 
 start_time_string = str(args.start_time)
 start_time_date = datetime.datetime.strptime(start_time_string, '%Y-%m-%d-%H-%M-%S')
 # unix time of start
 start_time = start_time_date.timestamp()
-#print(start_time_date)
-#print(start_time)
+
+if args.debug:
+  print("start_time_date: " + str(start_time_date))
+  print("start_time: " + str(start_time))
 
 end_time_string = str(args.end_time)
 end_time_date = datetime.datetime.strptime(end_time_string, '%Y-%m-%d-%H-%M-%S')
 # unix time of end
 end_time = end_time_date.timestamp()
-#print(end_time_date)
-#print(end_time)
+
+if args.debug:
+  print("end_time_date: " + str(end_time_date))
+  print("end_time: " + str(end_time))
 
 date_and_time_now = datetime.datetime.now()
 #print(date_and_time_now)
@@ -75,44 +109,6 @@ none_lines_counter = 0
 number_of_lines = 0
 num_of_missing_columns = 0
 
-# Determine number of columns. The problem here is that sometimes a sensor 
-# doesn't output data, so a column is missing. However, since the next 
-# column will just be written in that place instead, it is possible that 
-# an entry for column 3 for example, lands in column 2, because the sensor 
-# didn't write any data for column 2. The data for column 2 would then be 
-# wrong. Therefore, we need to determine the maximum number of columns and 
-# always check if the current line we are looking at has as many columns 
-# as the maximum. If not, we discard that line, as it is corrupt.
-#
-# This is obviously a huge performance inhibitor, as you have to go over
-# the (usually very large) file, but I haven't found a way to check for
-# this in a faster and equally inclusive manner.
-# Maybe it is possible to only do the first 100 lines or something like
-# that, but then you would be susceptible to situations like a sensor
-# temporarily not working, which would then lead to corrupt data being
-# passed on as valid.
-#
-# Potential problem: A space character at the end of the file can completely ruin this approach.
-#
-# Potential TODO: find out how many columns each file should have, check which file we are working on, use appropiate value.
-#                 That should wayyy faster and more secure.
-max_number_of_columns = 0
-with open(str(args.file_path), 'r') as data_file:
-  for line in data_file:
-    line_split_by_space = line.rstrip().split(' ')
-    number_of_columns = len(line_split_by_space)
-    if number_of_columns > max_number_of_columns:
-      max_number_of_columns = number_of_columns
-
-if args.debug:
-  print("max_number_of_columns: " + str(max_number_of_columns))
-
-# If the maximum number of columns is 0, the file must be empty, so we
-# exit the script here and inform the user.
-if max_number_of_columns == 0:
-  print("WARNING: the file appears to be empty!")
-  quit()
-
 with open(str(args.file_path), 'r') as data_file:
   with open(str(outpath), 'w') as out_file:
     for line in data_file:
@@ -122,10 +118,7 @@ with open(str(args.file_path), 'r') as data_file:
 
       line_is_corrupt = False
       # If the line has less columns than the maximum, it is corrupt.
-      # See comment above variable 'max_number_of_columns' for an
-      # explanation.
-      # Potential minor problem: error message could have little to no space chars, triggering the wrong condition here. Maybe check for error message first?
-      if len(line_split_by_space) < max_number_of_columns:
+      if len(line_split_by_space) < num_of_columns_to_use:
         if args.debug:
           print("line is corrupt")
         line_is_corrupt = True
@@ -134,6 +127,11 @@ with open(str(args.file_path), 'r') as data_file:
       line_has_error = False
       line_has_none = False
       Counter = 0
+ 
+      # This skips potential error messages, maybe move this check further down or think of a better way to handle this later. Maybe a seperate script to fix
+      if line_split_by_space[0].isnumeric():
+        if float(line_split_by_space[0]) < start_time or float(line_split_by_space[0]) > end_time:
+          continue
 
       for elem in line_split_by_space:
         if not elem.isnumeric() and elem == "None":
@@ -151,21 +149,25 @@ with open(str(args.file_path), 'r') as data_file:
           line_has_error = True
           error_message_lines = error_message_lines + 1
           break
-
+    
         Counter = Counter + 1
 
       if line_has_none:
         none_lines_counter = none_lines_counter + 1
 
       if not line_has_error:
-        # Delete columns from some sensors
+        # Delete columns and change units from some sensors
+        # The + '\n' will create a trailing new line at the end of the file. Probably not a problem, but noted just in case anyway
         if is_ads1115:
           out_file.write(line_split_by_space[0] + ' ' + str(float(line_split_by_space[1]) / 1000) + ' ' + str(float(line_split_by_space[2]) / 1000000) + '\n')
-        elif is_ds18b20 or is_mlx90614:
+        elif is_ds18b20:
           out_file.write(line_split_by_space[0] + ' ' + str(float(line_split_by_space[1]) / 1000) + '\n')
+        elif is_mlx90614:
+          out_file.write(line_split_by_space[0] + ' ' + str(float(line_split_by_space[1])) + '\n')
         else:
-          # This creates a trailing new line. Probably not a problem, but noted just in case anyway
           out_file.write(' '.join(line_split_by_space) + "\n")
+        if args.debug:
+          print("line was fine")
       elif args.log_error_lines:
         removed_lines.append(line)
 
